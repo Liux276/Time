@@ -11,6 +11,25 @@
 - **Node.js** >= 18.0.0
 - **pnpm** >= 8.0.0（推荐 9.x）
 
+### 安装运行依赖（Ubuntu/Debian）
+
+```bash
+# 安装 Node.js 20 LTS
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# 安装 pnpm
+if command -v corepack >/dev/null 2>&1; then
+  corepack enable
+  corepack prepare pnpm --activate
+else
+  npm install -g pnpm
+fi
+
+# 安装 native 模块编译工具（better-sqlite3 需要）
+sudo apt-get install -y build-essential python3 make g++
+```
+
 ### 安装依赖
 
 ```bash

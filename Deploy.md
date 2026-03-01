@@ -1,46 +1,94 @@
 # 部署指南
 
-使用 Caddy 提供 HTTPS 服务（443 端口），不占用 80 端口。
+使用 Caddy 提供 HTTPS 服务（443 端口），不占用 80 端口。前端静态文件统一发布到 `/var/www/<domain>`，避免 `caddy` 用户读取 `/home/...` 目录导致 403。
 
 ## 前提条件
 
 - 域名已解析到服务器公网 IP
-- 服务器已安装 Node.js >= 18、pnpm、Caddy
+- 服务器具备 sudo 权限（Node.js/pnpm/Caddy 可按第 1 步安装）
 - 443 端口未被占用
 
-## 1. 构建项目
+## 1. 安装依赖（Ubuntu/Debian）
 
 ```bash
-cd /home/lx/Code/time
-pnpm install && pnpm build
+sudo apt-get update
+sudo apt-get install -y curl ca-certificates gnupg build-essential python3 make g++ openssl
+
+# Node.js 20 LTS
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# pnpm
+if command -v corepack >/dev/null 2>&1; then
+  corepack enable
+  corepack prepare pnpm --activate
+else
+  npm install -g pnpm
+fi
+
+# Caddy（官方稳定源）
+# sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+# curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+# curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+# sudo apt-get update
+sudo apt-get install -y caddy
 ```
 
-## 2. 配置 Caddy
+## 2. 构建项目
+
+```bash
+cd ~/Time
+pnpm install
+pnpm build
+```
+
+## 3. 发布前端静态资源
+
+推荐使用仓库自带脚本（会自动同步到 `/var/www/<domain>` 并修正权限）：
+
+```bash
+cd ~/Time
+bash scripts/sync-client-dist.sh <your-linux-user> your-domain.com
+```
+
+如需手动执行，等价命令如下：
+
+```bash
+sudo mkdir -p /var/www/your-domain.com
+sudo rsync -a --delete /home/<your-linux-user>/Time/packages/client/dist/ /var/www/your-domain.com/
+sudo chown -R root:root /var/www/your-domain.com
+sudo find /var/www/your-domain.com -type d -exec chmod 755 {} \;
+sudo find /var/www/your-domain.com -type f -exec chmod 644 {} \;
+```
+
+## 4. 配置 Caddy
 
 编辑 `/etc/caddy/Caddyfile`：
 
 ```
 {
-    # 不监听 80 端口，使用 TLS-ALPN-01 验证方式申请证书
-    http_port 0
+    # 不开启 HTTP 监听；禁用自动 HTTP->HTTPS 跳转
+    auto_https disable_redirects
 }
 
 your-domain.com {
-    root * /home/lx/Code/time/packages/client/dist
-    file_server
+    root * /var/www/your-domain.com
     try_files {path} /index.html
+    file_server
 
     reverse_proxy /api/* 127.0.0.1:3000
-
+    # 强制仅使用 TLS-ALPN-01（443）申请证书，不走 HTTP-01（80）
     tls {
-        # TLS-ALPN-01 通过 443 端口完成验证，无需 80 端口
-        # 如果使用自签证书或已有证书，替换为：
-        # tls /path/to/cert.pem /path/to/key.pem
+        issuer acme {
+            disable_http_challenge
+        }
     }
+    # 若使用已有证书，改为：
+    # tls /etc/ssl/your-domain.com/cert.pem /etc/ssl/your-domain.com/key.pem
 }
 ```
 
-> **证书验证说明**：`http_port 0` 禁用 80 端口后，Caddy 自动切换到 TLS-ALPN-01 方式通过 443 端口完成 Let's Encrypt 证书验证。若 Let's Encrypt 验证受限，也可手动指定已有证书：
+> **证书验证说明**：以上配置禁用 HTTP 重定向并显式关闭 HTTP-01 challenge，Caddy 将通过 TLS-ALPN-01 在 443 端口完成 Let's Encrypt 验证。若该方式受限，可手动指定已有证书：
 >
 > ```
 > your-domain.com {
@@ -48,8 +96,15 @@ your-domain.com {
 >     # ... 其余配置同上
 > }
 > ```
+>
+> **403 排查（重点）**：如果 `curl -I https://your-domain.com` 返回 `403`，优先检查静态目录是否可读：
+>
+> ```bash
+> sudo -u caddy test -r /var/www/your-domain.com/index.html && echo ok || echo fail
+> sudo journalctl -u caddy -n 100 --no-pager
+> ```
 
-## 3. 配置后端服务
+## 5. 配置后端服务
 
 创建 `/etc/systemd/system/time-server.service`：
 
@@ -60,12 +115,14 @@ After=network.target
 
 [Service]
 Type=simple
-User=lx
-WorkingDirectory=/home/lx/Code/time/packages/server
+# 改成服务器上实际存在的用户，例如 ubuntu / deploy
+User=<your-linux-user>
+# 必须使用绝对路径，systemd 不解析 ~
+WorkingDirectory=/home/<your-linux-user>/Time/packages/server
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOST=127.0.0.1
-Environment=JWT_SECRET=替换为随机密钥
+Environment=JWT_SECRET= #替换为随机密钥 
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=5
@@ -80,7 +137,7 @@ WantedBy=multi-user.target
 openssl rand -hex 32
 ```
 
-## 4. 启动服务
+## 6. 启动服务
 
 ```bash
 sudo systemctl daemon-reload
@@ -88,14 +145,14 @@ sudo systemctl enable --now time-server
 sudo systemctl enable --now caddy
 ```
 
-## 5. 防火墙
+## 7. 防火墙
 
 ```bash
 sudo ufw allow 443/tcp
 # 无需开放 80 端口
 ```
 
-## 6. 验证
+## 8. 验证
 
 ```bash
 # 检查后端
@@ -106,6 +163,7 @@ systemctl status caddy
 
 # 测试访问
 curl -I https://your-domain.com
+curl -I https://your-domain.com/api/health # 按你的后端健康检查路由调整
 ```
 
 访问 `https://your-domain.com` 即可使用。
