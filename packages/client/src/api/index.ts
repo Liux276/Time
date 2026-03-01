@@ -38,26 +38,38 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor — handle 401
+// Response interceptor — validate JSON & handle errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Guard: API responses must be JSON. If the reverse proxy (e.g. Caddy)
+    // serves the SPA index.html for /api/* paths (try_files fallback), the
+    // content-type will be text/html and the data will be an HTML string.
+    // Treat this as a network-level error so all downstream logic correctly
+    // detects "server unreachable".
+    const ct = String(response.headers?.['content-type'] || '');
+    if (response.config.url && !ct.includes('application/json')) {
+      const err = new Error('Non-JSON response from API');
+      // Attach no `response` property so it is treated like a network error.
+      return Promise.reject(err);
+    }
+    return response;
+  },
   (error) => {
+    const routeName = String(router.currentRoute.value.name || '');
+    const isPublicAuthPage = routeName === 'login' || routeName === 'setup' || routeName === 'setup-status-error';
+
     if (error.response?.status === 401) {
       authHandlers.onUnauthorized?.();
       // Fallback: still clear local storage even if handler is not registered yet.
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      if (
-        router.currentRoute.value.name !== 'login'
-        && router.currentRoute.value.name !== 'setup'
-        && router.currentRoute.value.name !== 'setup-status-error'
-      ) {
+      if (!isPublicAuthPage) {
         router.push('/login');
       }
-    } else if (!error.response) {
+    } else if (!error.response || (error.response?.status >= 500)) {
+      // Network unreachable OR server returned 5xx (502/503 from reverse proxy
+      // when backend is down). Both mean "server unavailable".
       authHandlers.onNetworkError?.();
-      const routeName = String(router.currentRoute.value.name || '');
-      const isPublicAuthPage = routeName === 'login' || routeName === 'setup' || routeName === 'setup-status-error';
       if (!isPublicAuthPage) {
         router.push({
           name: 'setup-status-error',

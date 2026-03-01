@@ -72,15 +72,18 @@ sudo find /var/www/your-domain.com -type f -exec chmod 644 {} \;
 }
 
 your-domain.com {
-    root * /var/www/your-domain.com
-    try_files {path} /index.html
-    file_server
+    # API 请求：直接代理到后端，不走 try_files。
+    # 当后端不可用时 Caddy 返回 502，前端可正确检测到服务不可用。
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3000
+    }
 
-    reverse_proxy /api/* 127.0.0.1:3000
-
-    # 禁止浏览器/CDN 缓存 Service Worker 文件，确保每次拉取最新版本
-    @sw path /sw.js /workbox-*.js
-    header @sw Cache-Control "no-cache, no-store, must-revalidate"
+    # 静态文件 & SPA fallback：仅对非 API 路径生效
+    handle {
+        root * /var/www/your-domain.com # 你的域名
+        try_files {path} /index.html
+        file_server
+    }
 
     # 强制仅使用 TLS-ALPN-01（443）申请证书，不走 HTTP-01（80）
     tls {
@@ -92,6 +95,8 @@ your-domain.com {
     # tls /etc/ssl/your-domain.com/cert.pem /etc/ssl/your-domain.com/key.pem
 }
 ```
+
+> **为什么使用 `handle` 块？** 旧写法将 `try_files` 和 `reverse_proxy` 平级放置，Caddy 在后端不可用时可能将 `/api/*` 请求重写为 `index.html`（返回 200 + HTML），导致前端无法检测到服务端宕机。`handle` 块让 `/api/*` 和静态文件走完全独立的处理链，杜绝此问题。
 
 > **证书验证说明**：以上配置禁用 HTTP 重定向并显式关闭 HTTP-01 challenge，Caddy 将通过 TLS-ALPN-01 在 443 端口完成 Let's Encrypt 验证。若该方式受限，可手动指定已有证书：
 >

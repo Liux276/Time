@@ -25,6 +25,12 @@ async function checkNeedsSetup(): Promise<boolean | null> {
   for (let i = 0; i < SETUP_STATUS_MAX_RETRIES; i++) {
     try {
       const { data } = await authApi.setupStatus();
+      // Validate: data.needsSetup must be a boolean. If the response was
+      // garbage (e.g. HTML served by reverse proxy), data would be a string
+      // and data.needsSetup would be undefined — treat as failure.
+      if (typeof data?.needsSetup !== 'boolean') {
+        throw new Error('Invalid setup-status response');
+      }
       setupStatusCache = data.needsSetup;
       setupStatusCheckedAt = Date.now();
       return data.needsSetup;
@@ -128,7 +134,7 @@ router.beforeEach(async (to) => {
   const authStore = useAuthStore();
   const needsSetup = await checkNeedsSetup();
 
-  if (needsSetup === null) {
+  if (needsSetup == null) {
     if (to.name === 'setup-status-error') {
       return true;
     }
@@ -159,6 +165,12 @@ router.beforeEach(async (to) => {
       const status = await authStore.ensureSession();
       if (status === 'authenticated') {
         return { path: '/' };
+      }
+      if (status === 'server_unreachable') {
+        return {
+          name: 'setup-status-error',
+          query: { redirect: '/' },
+        };
       }
     }
     return true;

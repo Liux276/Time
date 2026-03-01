@@ -26,6 +26,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function setAuth(t: string, u: User) {
+    if (typeof t !== 'string' || !t || !u || typeof u !== 'object' || !('id' in u)) {
+      throw new Error('Invalid auth response from server');
+    }
     token.value = t;
     user.value = u;
     sessionStatus.value = 'authenticated';
@@ -87,6 +90,11 @@ export const useAuthStore = defineStore('auth', () => {
 
     try {
       const { data } = await authApi.me();
+      // Validate: /auth/me must return a user object with an id.
+      if (!data || typeof data !== 'object' || !('id' in data)) {
+        markServerUnreachable();
+        return sessionStatus.value;
+      }
       user.value = data;
       sessionStatus.value = 'authenticated';
       sessionCheckedAt.value = Date.now();

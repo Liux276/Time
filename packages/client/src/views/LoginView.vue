@@ -37,10 +37,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMessage, type FormInst, type FormRules } from 'naive-ui';
 import { useAuthStore } from '@/stores/authStore';
+import { authApi } from '@/api';
 import AppIcon from '@/components/common/AppIcon.vue';
 
 const router = useRouter();
@@ -48,11 +49,22 @@ const message = useMessage();
 const authStore = useAuthStore();
 
 const loading = ref(false);
+const serverUnavailable = ref(false);
 const formRef = ref<FormInst | null>(null);
 
 const form = reactive({
   username: '',
   password: '',
+});
+
+// On mount, probe backend to ensure it's reachable. If not, redirect to error page.
+onMounted(async () => {
+  try {
+    await authApi.setupStatus();
+  } catch {
+    serverUnavailable.value = true;
+    router.replace({ name: 'setup-status-error', query: { redirect: '/' } });
+  }
 });
 
 const rules: FormRules = {
@@ -79,8 +91,10 @@ async function handleSubmit() {
     message.success('登录成功');
     router.push('/');
   } catch (e: any) {
-    if (!e?.response) {
-      message.error('无法连接后端服务，请检查服务状态后重试');
+    if (!e?.response || e?.response?.status >= 500) {
+      message.error('服务暂不可用，请检查后端服务状态后重试');
+      // Server is down — redirect to dedicated error page
+      router.push({ name: 'setup-status-error', query: { redirect: '/' } });
     } else if (e.response.status === 400 || e.response.status === 401) {
       message.error(e.response?.data?.error || '用户名或密码错误');
     } else {
