@@ -155,9 +155,7 @@ time/
 │   │   │   │   ├── LoginView.vue          # 登录
 │   │   │   │   ├── SetupView.vue          # 系统初始化（首位管理员注册）
 │   │   │   │   ├── AdminUsersView.vue     # 用户管理（管理员）
-│   │   │   │   ├── IterationsView.vue     # 迭代首页（最新迭代）
-│   │   │   │   ├── IterationListView.vue  # 全部迭代列表
-│   │   │   │   ├── IterationDetailView.vue
+│   │   │   │   ├── IterationsView.vue     # 迭代主页（左侧卡片列表 + 右侧详情）
 │   │   │   │   ├── RequirementsView.vue   # 需求列表（行内编辑）
 │   │   │   │   ├── TaskDetailView.vue     # 任务详情
 │   │   │   │   ├── DashboardView.vue      # 看板统计
@@ -208,9 +206,8 @@ time/
 | `/setup` | SetupView | 系统初始化（创建首位管理员） | 公开（仅无管理员时可用） |
 | `/login` | LoginView | 登录 | 公开 |
 | `/` | — | 重定向到 `/iterations` | — |
-| `/iterations` | IterationsView | 迭代首页（展示最新迭代详情） | 需要 |
-| `/iterations/all` | IterationListView | 全部迭代列表 | 需要 |
-| `/iterations/:id` | IterationDetailView | 迭代详情 + 关联任务 | 需要 |
+| `/iterations` | IterationsView | 迭代主页（左侧卡片列表 + 右侧详情，小屏仅展示卡片列表） | 需要 |
+| `/iterations/:id` | IterationsView | 迭代详情（小屏独立详情页） | 需要 |
 | `/requirements` | RequirementsView | 需求列表（树形 + 行内编辑） | 需要 |
 | `/requirements/:id` | TaskDetailView | 任务详情 | 需要 |
 | `/dashboard` | DashboardView | 看板（燃尽图 + 工时统计） | 需要 |

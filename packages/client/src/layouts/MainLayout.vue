@@ -59,7 +59,7 @@
     </header>
 
     <!-- Main Content -->
-    <main class="px-4 sm:px-6 pt-6 pb-6" :class="{ 'pb-20 md:pb-6': true }">
+    <main class="px-4 sm:px-6 pt-6 pb-[var(--mobile-tab-bar-offset)] md:pb-6">
       <div class="max-w-7xl mx-auto">
         <transition name="page-fade" mode="out-in">
           <slot />

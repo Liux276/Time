@@ -59,18 +59,54 @@
           <span class="text-xs" style="color: var(--color-text-muted)">上次备份: {{ config.last_backup_at }}</span>
         </div>
       </n-card>
+
+      <!-- Backup Management (admin only) -->
+      <n-card v-if="authStore.isAdmin" size="small" class="card-no-hover">
+        <template #header><span class="subsection-title">备份管理</span></template>
+
+        <div class="flex items-center gap-3 mb-4">
+          <n-button :loading="loadingList" @click="loadBackupList">刷新列表</n-button>
+          <n-button :loading="cleaning" @click="doCleanup">清理旧备份</n-button>
+          <span v-if="backupFiles.length" class="text-xs" style="color: var(--color-text-muted)">
+            共 {{ backupFiles.length }} 个备份文件
+          </span>
+        </div>
+
+        <n-data-table
+          v-if="backupFiles.length"
+          :columns="backupColumns"
+          :data="backupFiles"
+          :bordered="false"
+          size="small"
+          :max-height="320"
+          :row-key="(row: BackupFile) => row.name"
+        />
+        <n-empty v-else-if="listLoaded" description="暂无备份文件" size="small" />
+      </n-card>
+
+      <!-- Restore confirmation modal -->
+      <n-modal v-model:show="showRestoreModal" preset="dialog" type="warning" title="确认恢复"
+        positive-text="确认恢复" negative-text="取消"
+        :loading="restoring"
+        @positive-click="confirmRestore"
+      >
+        <p>将从 <strong>{{ restoreTarget }}</strong> 恢复数据，当前数据库将被覆盖。</p>
+        <p style="color: var(--color-text-muted)" class="text-xs mt-2">恢复前会自动备份当前数据到服务器临时目录。</p>
+      </n-modal>
     </div>
   </MainLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
-import { useMessage } from 'naive-ui';
+import { ref, reactive, computed, onMounted, h } from 'vue';
+import { useMessage, type DataTableColumns, NButton, NTime } from 'naive-ui';
 import { authApi, backupApi } from '@/api';
 import type { BackupConfig } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import MainLayout from '@/layouts/MainLayout.vue';
 import PageHeader from '@/components/common/PageHeader.vue';
+
+interface BackupFile { name: string; lastmod: string; }
 
 const message = useMessage();
 const authStore = useAuthStore();
@@ -158,10 +194,99 @@ async function triggerBackup() {
     const { data } = await backupApi.trigger();
     if (data.success) message.success(data.message);
     else message.error(data.message);
+    // Refresh list after backup
+    if (listLoaded.value) await loadBackupList();
   } catch (e: any) {
     message.error(e.response?.data?.error || '备份失败');
   } finally {
     backing.value = false;
+  }
+}
+
+// --- Backup Management (admin only) ---
+const backupFiles = ref<BackupFile[]>([]);
+const loadingList = ref(false);
+const listLoaded = ref(false);
+const cleaning = ref(false);
+const restoring = ref(false);
+const showRestoreModal = ref(false);
+const restoreTarget = ref('');
+
+const backupColumns: DataTableColumns<BackupFile> = [
+  {
+    title: '文件名',
+    key: 'name',
+    ellipsis: { tooltip: true },
+  },
+  {
+    title: '修改时间',
+    key: 'lastmod',
+    width: 180,
+    render(row) {
+      return h(NTime, { time: new Date(row.lastmod), type: 'relative' });
+    },
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 80,
+    render(row) {
+      return h(NButton, {
+        size: 'small',
+        type: 'warning',
+        quaternary: true,
+        onClick: () => { restoreTarget.value = row.name; showRestoreModal.value = true; },
+      }, { default: () => '恢复' });
+    },
+  },
+];
+
+async function loadBackupList() {
+  loadingList.value = true;
+  try {
+    const { data } = await backupApi.status();
+    backupFiles.value = data.files || [];
+    listLoaded.value = true;
+  } catch (e: any) {
+    message.error(e.response?.data?.error || '获取备份列表失败');
+  } finally {
+    loadingList.value = false;
+  }
+}
+
+async function confirmRestore() {
+  restoring.value = true;
+  try {
+    const { data } = await backupApi.restore(restoreTarget.value);
+    if (data.success) {
+      message.success(data.message);
+      // Database replaced — reload page to reset all stores
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      message.error(data.message);
+    }
+  } catch (e: any) {
+    message.error(e.response?.data?.error || '恢复失败');
+  } finally {
+    restoring.value = false;
+    showRestoreModal.value = false;
+  }
+}
+
+async function doCleanup() {
+  cleaning.value = true;
+  try {
+    const { data } = await backupApi.cleanup();
+    if (data.success) {
+      message.success(data.message);
+      if (listLoaded.value) await loadBackupList();
+    } else {
+      message.error(data.message);
+    }
+  } catch (e: any) {
+    message.error(e.response?.data?.error || '清理失败');
+  } finally {
+    cleaning.value = false;
   }
 }
 </script>

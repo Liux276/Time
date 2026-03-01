@@ -1,183 +1,245 @@
 <template>
   <MainLayout>
     <div>
-      <!-- Page Header: iteration name + date range -->
-      <PageHeader :title="iteration?.name || '加载中...'" :showBack="!!routeId">
-        <template #after-title>
-          <n-tag v-if="iteration" :type="ITERATION_STATUS_NAIVE_TYPE[iteration.status]" size="small" round>
-            {{ ITERATION_STATUS_CONFIG[iteration.status]?.label }}
-          </n-tag>
-        </template>
-        <template #actions>
-          <n-button @click="router.push('/iterations/all')" secondary size="small">查看全部</n-button>
-          <n-button type="primary" size="small" @click="showForm = true">
-            <template #icon><n-icon><AddOutline /></n-icon></template>
-            新建迭代
-          </n-button>
-        </template>
-      </PageHeader>
+      <!-- ===== Mobile: card list (no route id) ===== -->
+      <template v-if="!isDesktop && !routeId">
+        <PageHeader title="迭代">
+          <template #actions>
+            <n-button type="primary" size="small" @click="showForm = true">
+              <template #icon><n-icon><AddOutline /></n-icon></template>
+              新建迭代
+            </n-button>
+          </template>
+        </PageHeader>
 
-      <template v-if="iteration">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- Main column -->
-          <div class="lg:col-span-2 space-y-6">
-            <!-- Stat Cards -->
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard :value="iteration.task_count" label="任务数量" icon="task" accent="var(--color-accent)" />
-              <StatCard :value="iteration.estimated_hours" suffix="h" label="预估工时" icon="clock" accent="var(--color-info)" />
-              <StatCard :value="iteration.completed_hours" suffix="h" label="完成工时" icon="check-circle" accent="var(--color-success)" />
-              <StatCard :value="iteration.remaining_hours" suffix="h" label="剩余工时" icon="trending-up" accent="var(--color-warning)" />
+        <div v-if="iterationStore.iterations.length > 0" class="space-y-3">
+          <IterationCard
+            v-for="iter in iterationStore.iterations"
+            :key="iter.id"
+            :iteration="iter"
+            :selected="false"
+            @select="id => router.push(`/iterations/${id}`)"
+          />
+        </div>
+
+        <div v-else-if="!loading" class="card-glass p-12 text-center card-no-hover">
+          <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl mb-4" style="background: var(--color-accent-light)">
+            <AppIcon name="iteration" :size="28" color="var(--color-accent)" />
+          </div>
+          <p class="text-sm-body mb-4" style="color: var(--color-text-secondary)">暂无迭代</p>
+          <n-button type="primary" size="small" @click="showForm = true">创建第一个迭代</n-button>
+        </div>
+
+        <n-spin v-if="loading" class="flex justify-center py-12" />
+      </template>
+
+      <!-- ===== Desktop: master-detail / Mobile: detail only ===== -->
+      <template v-else>
+        <div class="flex gap-6">
+          <!-- Left sidebar: iteration card list (desktop only) -->
+          <div class="hidden lg:flex lg:flex-col w-80 flex-shrink-0">
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-base font-semibold" style="color: var(--color-text-primary)">迭代</span>
+              <n-button type="primary" size="small" @click="showForm = true">
+                <template #icon><n-icon><AddOutline /></n-icon></template>
+                新建
+              </n-button>
             </div>
-
-            <!-- Task list card -->
-            <n-card size="medium" class="card-no-hover">
-              <template #header>
-                <span class="subsection-title">需求列表</span>
-              </template>
-              <template #header-extra>
-                <div class="flex items-center gap-2">
-                  <n-radio-group v-model:value="displayMode" size="small">
-                    <n-radio-button value="table">表格</n-radio-button>
-                    <n-radio-button value="card">卡片</n-radio-button>
-                  </n-radio-group>
-                  <n-popover trigger="click" placement="bottom-end" :show-arrow="false" v-if="displayMode === 'table'">
-                    <template #trigger>
-                      <n-button tertiary size="small">列设置</n-button>
-                    </template>
-                    <div class="w-56">
-                      <n-checkbox-group v-model:value="columnSelected">
-                        <n-space vertical size="small">
-                          <n-checkbox v-for="item in columnOptions" :key="item.value" :value="item.value">
-                            {{ item.label }}
-                          </n-checkbox>
-                        </n-space>
-                      </n-checkbox-group>
-                    </div>
-                  </n-popover>
-                  <n-button type="primary" size="small" @click="showAddTask = true">添加任务</n-button>
-                </div>
-              </template>
-
-              <!-- Table mode -->
-              <n-data-table
-                v-if="iterationTasks.length > 0 && displayMode === 'table'"
-                :columns="taskColumns"
-                :data="iterationTasks"
-                :row-key="(row: Task) => row.id"
-                :bordered="false"
-                size="small"
-                :max-height="500"
-                :children-key="'children'"
-                :default-expand-all="true"
-                :scroll-x="tableScrollX"
-                striped
+            <div class="space-y-3 overflow-y-auto px-1 py-1" style="max-height: calc(100vh - 140px)">
+              <IterationCard
+                v-for="iter in iterationStore.iterations"
+                :key="iter.id"
+                :iteration="iter"
+                :selected="iteration?.id === iter.id"
+                @select="selectIteration"
               />
-
-              <!-- Card mode -->
-              <div v-else-if="iterationTasks.length > 0" class="space-y-3">
-                <div
-                  v-for="item in flattenedTasks"
-                  :key="item.task.id"
-                  class="card-solid p-4 stagger-item cursor-pointer transition-all hover:shadow-md"
-                  :style="{ marginLeft: `${Math.min(item.depth, 6) * 16}px` }"
-                  @click="router.push(`/requirements/${item.task.id}`)"
-                >
-                  <div class="flex items-start justify-between gap-3 mb-3">
-                    <span class="block min-w-0 max-w-full font-semibold truncate" style="color: var(--color-text-primary); font-size: 14px">
-                      {{ item.task.title }}
-                    </span>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                      <n-tag :type="STATUS_NAIVE_TYPE[item.task.status]" size="small" :bordered="false" round>
-                        {{ STATUS_CONFIG[item.task.status].label }}
-                      </n-tag>
-                      <n-tag :type="PRIORITY_NAIVE_TYPE[item.task.priority]" size="small" :bordered="false" round>
-                        {{ PRIORITY_CONFIG[item.task.priority].label }}
-                      </n-tag>
-                    </div>
-                  </div>
-                  <div class="grid grid-cols-2 gap-2 text-caption mb-3">
-                    <span>工时：{{ item.task.completed_hours }}/{{ item.task.estimated_hours }}h</span>
-                    <span>剩余：{{ item.task.remaining_hours }}h</span>
-                  </div>
-                  <n-progress
-                    type="line"
-                    :percentage="item.task.progress"
-                    :height="8"
-                    :border-radius="4"
-                    :show-indicator="false"
-                    :processing="item.task.status === 'in_progress'"
-                  />
-                </div>
+              <div v-if="iterationStore.iterations.length === 0 && !loading" class="text-center py-8">
+                <p class="text-caption" style="color: var(--color-text-tertiary)">暂无迭代</p>
               </div>
-
-              <n-empty v-else description="该迭代暂无任务" />
-            </n-card>
+            </div>
           </div>
 
-          <!-- Sidebar -->
-          <div class="space-y-4">
-            <n-card size="small" class="card-no-hover">
-              <div class="space-y-1">
-                <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('name')">
-                  <span class="text-caption block" style="color: var(--color-text-tertiary)">名称</span>
-                  <span class="text-sm-body font-medium" style="color: var(--color-text-primary)">{{ iteration.name }}</span>
-                </button>
-                <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('status')">
-                  <span class="text-caption block" style="color: var(--color-text-tertiary)">状态</span>
-                  <span class="text-sm-body" style="color: var(--color-text-primary)">{{ ITERATION_STATUS_CONFIG[iteration.status].label }}</span>
-                </button>
-                <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('planned_start')">
-                  <span class="text-caption block" style="color: var(--color-text-tertiary)">开始时间</span>
-                  <span class="text-sm-body" style="color: var(--color-text-primary)">{{ iteration.planned_start || '-' }}</span>
-                </button>
-                <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('planned_end')">
-                  <span class="text-caption block" style="color: var(--color-text-tertiary)">结束时间</span>
-                  <span class="text-sm-body" style="color: var(--color-text-primary)">{{ iteration.planned_end || '-' }}</span>
-                </button>
-                <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('summary')">
-                  <span class="text-caption block" style="color: var(--color-text-tertiary)">总结</span>
-                  <span class="block max-w-full whitespace-nowrap overflow-hidden text-ellipsis text-sm-body" style="color: var(--color-text-primary)">{{ iteration.summary || '未填写' }}</span>
-                </button>
-              </div>
-            </n-card>
+          <!-- Right main: iteration detail -->
+          <div class="flex-1 min-w-0">
+            <PageHeader :title="iteration?.name || '加载中...'" :showBack="!isDesktop && !!routeId">
+              <template #after-title>
+                <n-tag v-if="iteration" :type="ITERATION_STATUS_NAIVE_TYPE[iteration.status]" size="small" round>
+                  {{ ITERATION_STATUS_CONFIG[iteration.status]?.label }}
+                </n-tag>
+              </template>
+              <template #actions>
+                <!-- Mobile: show create button in header -->
+                <n-button v-if="!isDesktop" type="primary" size="small" @click="showForm = true">
+                  <template #icon><n-icon><AddOutline /></n-icon></template>
+                  新建迭代
+                </n-button>
+              </template>
+            </PageHeader>
 
-            <!-- Stats sidebar card -->
-            <n-card size="small" class="card-no-hover">
-              <div class="grid grid-cols-2 gap-3">
-                <div class="text-center p-2">
-                  <div class="text-h3 font-bold" style="color: var(--color-accent)">{{ iteration.task_count }}</div>
-                  <div class="text-caption" style="color: var(--color-text-tertiary)">任务</div>
+            <template v-if="iteration">
+              <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Main column -->
+                <div class="lg:col-span-2 space-y-6">
+                  <!-- Stat Cards -->
+                  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <StatCard :value="iteration.task_count" label="任务数量" icon="task" accent="var(--color-accent)" />
+                    <StatCard :value="iteration.estimated_hours" suffix="h" label="预估工时" icon="clock" accent="var(--color-info)" />
+                    <StatCard :value="iteration.completed_hours" suffix="h" label="完成工时" icon="check-circle" accent="var(--color-success)" />
+                    <StatCard :value="iteration.remaining_hours" suffix="h" label="剩余工时" icon="trending-up" accent="var(--color-warning)" />
+                  </div>
+
+                  <!-- Task list card -->
+                  <n-card size="medium" class="card-no-hover">
+                    <template #header>
+                      <span class="subsection-title">需求列表</span>
+                    </template>
+                    <template #header-extra>
+                      <div class="flex items-center gap-2">
+                        <n-radio-group v-model:value="displayMode" size="small">
+                          <n-radio-button value="table">表格</n-radio-button>
+                          <n-radio-button value="card">卡片</n-radio-button>
+                        </n-radio-group>
+                        <n-popover trigger="click" placement="bottom-end" :show-arrow="false" v-if="displayMode === 'table'">
+                          <template #trigger>
+                            <n-button tertiary size="small">列设置</n-button>
+                          </template>
+                          <div class="w-56">
+                            <n-checkbox-group v-model:value="columnSelected">
+                              <n-space vertical size="small">
+                                <n-checkbox v-for="item in columnOptions" :key="item.value" :value="item.value">
+                                  {{ item.label }}
+                                </n-checkbox>
+                              </n-space>
+                            </n-checkbox-group>
+                          </div>
+                        </n-popover>
+                        <n-button type="primary" size="small" @click="showAddTask = true">添加任务</n-button>
+                      </div>
+                    </template>
+
+                    <!-- Table mode -->
+                    <n-data-table
+                      v-if="iterationTasks.length > 0 && displayMode === 'table'"
+                      :columns="taskColumns"
+                      :data="iterationTasks"
+                      :row-key="(row: Task) => row.id"
+                      :bordered="false"
+                      size="small"
+                      :max-height="500"
+                      :children-key="'children'"
+                      :default-expand-all="true"
+                      :scroll-x="tableScrollX"
+                      striped
+                    />
+
+                    <!-- Card mode -->
+                    <div v-else-if="iterationTasks.length > 0" class="space-y-3">
+                      <div
+                        v-for="item in flattenedTasks"
+                        :key="item.task.id"
+                        class="card-solid p-4 stagger-item cursor-pointer transition-all hover:shadow-md"
+                        :style="{ marginLeft: `${Math.min(item.depth, 6) * 16}px` }"
+                        @click="router.push(`/requirements/${item.task.id}`)"
+                      >
+                        <div class="flex items-start justify-between gap-3 mb-3">
+                          <span class="block min-w-0 max-w-full font-semibold truncate" style="color: var(--color-text-primary); font-size: 14px">
+                            {{ item.task.title }}
+                          </span>
+                          <div class="flex items-center gap-2 flex-shrink-0">
+                            <n-tag :type="STATUS_NAIVE_TYPE[item.task.status]" size="small" :bordered="false" round>
+                              {{ STATUS_CONFIG[item.task.status].label }}
+                            </n-tag>
+                            <n-tag :type="PRIORITY_NAIVE_TYPE[item.task.priority]" size="small" :bordered="false" round>
+                              {{ PRIORITY_CONFIG[item.task.priority].label }}
+                            </n-tag>
+                          </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-caption mb-3">
+                          <span>工时：{{ item.task.completed_hours }}/{{ item.task.estimated_hours }}h</span>
+                          <span>剩余：{{ item.task.remaining_hours }}h</span>
+                        </div>
+                        <n-progress
+                          type="line"
+                          :percentage="item.task.progress"
+                          :height="8"
+                          :border-radius="4"
+                          :show-indicator="false"
+                          :processing="item.task.status === 'in_progress'"
+                        />
+                      </div>
+                    </div>
+
+                    <n-empty v-else description="该迭代暂无任务" />
+                  </n-card>
                 </div>
-                <div class="text-center p-2">
-                  <div class="text-h3 font-bold" style="color: var(--color-info)">{{ iteration.estimated_hours }}h</div>
-                  <div class="text-caption" style="color: var(--color-text-tertiary)">预估</div>
-                </div>
-                <div class="text-center p-2">
-                  <div class="text-h3 font-bold" style="color: var(--color-success)">{{ iteration.completed_hours }}h</div>
-                  <div class="text-caption" style="color: var(--color-text-tertiary)">完成</div>
-                </div>
-                <div class="text-center p-2">
-                  <div class="text-h3 font-bold" style="color: var(--color-warning)">{{ iteration.remaining_hours }}h</div>
-                  <div class="text-caption" style="color: var(--color-text-tertiary)">剩余</div>
+
+                <!-- Sidebar -->
+                <div class="space-y-4">
+                  <n-card size="small" class="card-no-hover">
+                    <div class="space-y-1">
+                      <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('name')">
+                        <span class="text-caption block" style="color: var(--color-text-tertiary)">名称</span>
+                        <span class="text-sm-body font-medium" style="color: var(--color-text-primary)">{{ iteration.name }}</span>
+                      </button>
+                      <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('status')">
+                        <span class="text-caption block" style="color: var(--color-text-tertiary)">状态</span>
+                        <span class="text-sm-body" style="color: var(--color-text-primary)">{{ ITERATION_STATUS_CONFIG[iteration.status].label }}</span>
+                      </button>
+                      <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('planned_start')">
+                        <span class="text-caption block" style="color: var(--color-text-tertiary)">开始时间</span>
+                        <span class="text-sm-body" style="color: var(--color-text-primary)">{{ iteration.planned_start || '-' }}</span>
+                      </button>
+                      <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('planned_end')">
+                        <span class="text-caption block" style="color: var(--color-text-tertiary)">结束时间</span>
+                        <span class="text-sm-body" style="color: var(--color-text-primary)">{{ iteration.planned_end || '-' }}</span>
+                      </button>
+                      <button class="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-surface" @click="openFieldEditor('summary')">
+                        <span class="text-caption block" style="color: var(--color-text-tertiary)">总结</span>
+                        <span class="block max-w-full whitespace-nowrap overflow-hidden text-ellipsis text-sm-body" style="color: var(--color-text-primary)">{{ iteration.summary || '未填写' }}</span>
+                      </button>
+                    </div>
+                  </n-card>
+
+                  <!-- Stats sidebar card -->
+                  <n-card size="small" class="card-no-hover">
+                    <div class="grid grid-cols-2 gap-3">
+                      <div class="text-center p-2">
+                        <div class="text-h3 font-bold" style="color: var(--color-accent)">{{ iteration.task_count }}</div>
+                        <div class="text-caption" style="color: var(--color-text-tertiary)">任务</div>
+                      </div>
+                      <div class="text-center p-2">
+                        <div class="text-h3 font-bold" style="color: var(--color-info)">{{ iteration.estimated_hours }}h</div>
+                        <div class="text-caption" style="color: var(--color-text-tertiary)">预估</div>
+                      </div>
+                      <div class="text-center p-2">
+                        <div class="text-h3 font-bold" style="color: var(--color-success)">{{ iteration.completed_hours }}h</div>
+                        <div class="text-caption" style="color: var(--color-text-tertiary)">完成</div>
+                      </div>
+                      <div class="text-center p-2">
+                        <div class="text-h3 font-bold" style="color: var(--color-warning)">{{ iteration.remaining_hours }}h</div>
+                        <div class="text-caption" style="color: var(--color-text-tertiary)">剩余</div>
+                      </div>
+                    </div>
+                  </n-card>
+
+                  <n-button type="error" secondary size="small" block @click="confirmDelete">删除迭代</n-button>
                 </div>
               </div>
-            </n-card>
+            </template>
 
-            <n-button type="error" secondary size="small" block @click="confirmDelete">删除迭代</n-button>
+            <!-- Empty state (detail pane) -->
+            <div v-else-if="!loading" class="card-glass p-12 text-center card-no-hover">
+              <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl mb-4" style="background: var(--color-accent-light)">
+                <AppIcon name="iteration" :size="28" color="var(--color-accent)" />
+              </div>
+              <p class="text-sm-body mb-4" style="color: var(--color-text-secondary)">暂无迭代</p>
+              <n-button type="primary" size="small" @click="showForm = true">创建第一个迭代</n-button>
+            </div>
+
+            <n-spin v-if="loading" class="flex justify-center py-12" />
           </div>
         </div>
       </template>
-
-      <!-- Empty state -->
-      <div v-else-if="!loading" class="card-glass p-12 text-center card-no-hover">
-        <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl mb-4" style="background: var(--color-accent-light)">
-          <AppIcon name="iteration" :size="28" color="var(--color-accent)" />
-        </div>
-        <p class="text-sm-body mb-4" style="color: var(--color-text-secondary)">暂无迭代</p>
-        <n-button type="primary" size="small" @click="showForm = true">创建第一个迭代</n-button>
-      </div>
-
-      <n-spin v-if="loading" class="flex justify-center py-12" />
 
       <!-- Create iteration modal -->
       <n-modal v-model:show="showForm" preset="card" title="新建迭代" :style="{ width: '500px' }" :mask-closable="false">
@@ -281,6 +343,7 @@ import MainLayout from '@/layouts/MainLayout.vue';
 import PageHeader from '@/components/common/PageHeader.vue';
 import StatCard from '@/components/common/StatCard.vue';
 import AppIcon from '@/components/common/AppIcon.vue';
+import IterationCard from '@/components/iteration/IterationCard.vue';
 
 const modeStorageKey = 'task-view-mode:iterations-home';
 type TaskListDisplayMode = 'table' | 'card';
@@ -293,6 +356,7 @@ const dialogApi = useDialog();
 const iterationStore = useIterationStore();
 const breakpoints = useBreakpoints({ sm: 640, md: 768, lg: 1024 });
 const isMobile = breakpoints.smaller('sm');
+const isDesktop = breakpoints.greaterOrEqual('lg');
 
 const routeId = computed(() => route.params.id as string | undefined);
 
@@ -635,6 +699,11 @@ function applyIteration(updated: Iteration) {
   iteration.value = updated;
 }
 
+/** Desktop: click sidebar card to switch iteration (replace URL to avoid history piling) */
+function selectIteration(id: string) {
+  router.replace(`/iterations/${id}`);
+}
+
 let loadRequestId = 0;
 
 async function loadData() {
@@ -642,6 +711,12 @@ async function loadData() {
   loading.value = true;
   try {
     await iterationStore.fetchIterations();
+
+    // On mobile card-list view (no routeId), skip loading detail
+    if (!isDesktop.value && !routeId.value) {
+      return;
+    }
+
     const id = routeId.value;
     let iterData: Iteration | null;
     if (id) {
@@ -656,6 +731,7 @@ async function loadData() {
       if (loadRequestId !== reqId) return;
       iterationTasks.value = buildTaskTree(resp.data.data);
     } else {
+      iteration.value = null;
       iterationTasks.value = [];
     }
   } finally {
@@ -680,7 +756,7 @@ async function createIteration() {
   try { await formRef.value?.validate(); } catch { return; }
   submitting.value = true;
   try {
-    await iterationStore.createIteration({
+    const created = await iterationStore.createIteration({
       name: form.name,
       planned_start: form.planned_start!,
       planned_end: form.planned_end!,
@@ -692,7 +768,12 @@ async function createIteration() {
     form.planned_start = null;
     form.planned_end = null;
     form.summary = '';
-    await loadData();
+    // Navigate to the newly created iteration
+    if (created?.id) {
+      router.replace(`/iterations/${created.id}`);
+    } else {
+      await loadData();
+    }
   } catch (e: any) {
     message.error(e.response?.data?.error || '创建失败');
   } finally {
@@ -775,7 +856,9 @@ function confirmDelete() {
       if (!iteration.value) return;
       await iterationStore.deleteIteration(iteration.value.id);
       message.success('迭代已删除');
-      router.push('/iterations/all');
+      iteration.value = null;
+      iterationTasks.value = [];
+      router.replace('/iterations');
     },
   });
 }

@@ -45,11 +45,6 @@ const router = createRouter({
       component: () => import('@/views/IterationsView.vue'),
     },
     {
-      path: '/iterations/all',
-      name: 'iteration-list',
-      component: () => import('@/views/IterationListView.vue'),
-    },
-    {
       path: '/iterations/:id',
       name: 'iteration-detail',
       component: () => import('@/views/IterationsView.vue'),

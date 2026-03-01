@@ -169,6 +169,9 @@ export const backupApi = {
   restore(fileName?: string) {
     return api.post<{ success: boolean; message: string }>('/backup/restore', { fileName });
   },
+  cleanup() {
+    return api.post<{ success: boolean; deleted: number; kept: number; message: string }>('/backup/cleanup');
+  },
 };
 
 export default api;

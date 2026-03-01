@@ -1,5 +1,6 @@
 import { Request, Response, Router } from 'express';
 import {
+  cleanupOldBackups,
   getBackupConfig, getBackupList, restoreFromBackup, triggerBackup, updateBackupConfig,
 } from '../services/backupService.js';
 
@@ -32,6 +33,12 @@ router.post('/restore', async (req: Request, res: Response) => {
   try {
     const { fileName } = req.body;
     res.json(await restoreFromBackup(fileName));
+  } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+});
+
+router.post('/cleanup', async (_req: Request, res: Response) => {
+  try {
+    res.json(await cleanupOldBackups());
   } catch (error) { res.status(500).json({ error: (error as Error).message }); }
 });
 
