@@ -142,3 +142,13 @@ vite.config.ts.timestamp-*
 *.db
 *.db-wal
 *.db-shm
+
+# Project-specific local artifacts
+.DS_Store
+.idea/
+.vscode/
+pnpm-debug.log*
+packages/*/dist/
+packages/*/node_modules/
+packages/*/tsconfig.tsbuildinfo
+packages/server/data/
