@@ -1,0 +1,20 @@
+{
+  "name": "time-task-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "个人任务日程管理系统",
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild", "vue-demi"]
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:client": "pnpm --filter @time/client dev",
+    "dev:server": "pnpm --filter @time/server dev",
+    "build": "pnpm -r build",
+    "build:client": "pnpm --filter @time/client build",
+    "build:server": "pnpm --filter @time/server build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
